@@ -1,58 +1,78 @@
-const pool = require('./db');
+const pool = require("./db");
 
-// Create the OTP table with a user_id column (to uniquely identify users)
-const createOtpTable = async () => {
+// Function to create the Users table if it doesn't exist
+const createUsersTable = async () => {
+  const query = `
+    CREATE TABLE IF NOT EXISTS users (
+      user_id SERIAL PRIMARY KEY,
+      mobile_number VARCHAR(15) UNIQUE NOT NULL,
+      jwt_token TEXT NOT NULL,
+      first_name VARCHAR(100),
+      last_name VARCHAR(100),
+      gender VARCHAR(10),
+      age INT,
+      height DECIMAL(5,2),
+      religion VARCHAR(100),
+      drinking BOOLEAN,
+      smoking BOOLEAN,
+      preferred_gender VARCHAR(10),
+      budget DECIMAL(10,2),
+      preferred_location VARCHAR(100),
+      prompt TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `;
   try {
-    const createTable = `
-      CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        phone_number VARCHAR(15) NOT NULL UNIQUE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `;
-    await pool.query(createTable);
-
-    const createOtpTable = `
-      CREATE TABLE IF NOT EXISTS otps (
-        id SERIAL PRIMARY KEY,
-        user_id INT REFERENCES users(id) ON DELETE CASCADE,
-        otp_code VARCHAR(6) NOT NULL,
-        expires_at TIMESTAMP NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `;
-    await pool.query(createOtpTable);
-    console.log('OTP table and Users table created successfully');
+    await pool.query(query);
+    console.log("Users table created successfully");
   } catch (err) {
-    console.error('Error creating tables:', err.stack);
+    console.error("Error creating Users table:", err);
   }
 };
 
-// Insert a new user into the users table
-const insertUser = async (phoneNumber) => {
+// Function to create the OTP table if it doesn't exist
+const createOtpTable = async () => {
+  const query = `
+    CREATE TABLE IF NOT EXISTS otp (
+      otp_id SERIAL PRIMARY KEY,
+      user_id INT REFERENCES users(user_id) ON DELETE CASCADE,
+      otp_code VARCHAR(6),
+      expires_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `;
+  try {
+    await pool.query(query);
+    console.log("OTP table created successfully");
+  } catch (err) {
+    console.error("Error creating OTP table:", err);
+  }
+};
+
+// Insert user into the database
+const insertUser = async (mobileNumber) => {
   try {
     const result = await pool.query(
-      `INSERT INTO users (phone_number) VALUES ($1) RETURNING id, phone_number`,
-      [phoneNumber]
+      "INSERT INTO users (mobile_number, jwt_token) VALUES ($1, '') RETURNING user_id",
+      [mobileNumber]
     );
-    return result.rows[0]; // Returns the inserted user object
+    return result.rows[0];
   } catch (err) {
-    console.error('Error inserting user:', err.stack);
-    return null;
+    console.error("Error inserting user:", err);
+    throw err;
   }
 };
 
-// Insert OTP into the database
+// Insert OTP into the OTP table
 const insertOtp = async (userId, otpCode, expiresAt) => {
   try {
     const result = await pool.query(
-      `INSERT INTO otps (user_id, otp_code, expires_at) 
-      VALUES ($1, $2, $3) RETURNING *`,
+      "INSERT INTO otp (user_id, otp_code, expires_at) VALUES ($1, $2, $3) RETURNING otp_id",
       [userId, otpCode, expiresAt]
     );
     return result.rows[0];
   } catch (err) {
-    console.error('Error inserting OTP:', err.stack);
+    console.error("Error inserting OTP:", err);
     return null;
   }
 };
@@ -61,19 +81,24 @@ const insertOtp = async (userId, otpCode, expiresAt) => {
 const verifyOtp = async (userId, otpCode) => {
   try {
     const result = await pool.query(
-      `SELECT * FROM otps WHERE user_id = $1 AND otp_code = $2 AND expires_at > NOW()`,
+      "SELECT otp_code, expires_at FROM otp WHERE user_id = $1 AND otp_code = $2 AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1",
       [userId, otpCode]
     );
-    return result.rows.length > 0; // Return true if OTP is valid
+
+    if (result.rows.length === 0) {
+      return false;
+    }
+    return true;
   } catch (err) {
-    console.error('Error verifying OTP:', err.stack);
+    console.error("Error verifying OTP:", err);
     return false;
   }
 };
 
 module.exports = {
-  createOtpTable,
   insertUser,
   insertOtp,
   verifyOtp,
+  createUsersTable,
+  createOtpTable,
 };
